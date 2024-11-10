@@ -1,0 +1,131 @@
+from k_means_constrained import KMeansConstrained # KMEANs algo but with 4 to each cluster
+import numpy as np
+from scipy.spatial.distance import pdist # for average pairwise distance
+import gensim.downloader as api
+
+my_model = None # word2vec model that takes a while to download
+
+def get_average_pairwise_distance(cluster_points):
+  # Assuming `cluster_points` is a numpy array of points in the cluster
+  distances = pdist(cluster_points)
+  avg_distance = np.mean(distances)
+  return avg_distance
+
+def get_best_combinations_KMeans(my_model, words, X, num_clusters):
+  clf = KMeansConstrained(
+    n_clusters=num_clusters,
+    size_min=4,
+    size_max=4 # each cluster has 4 points
+  )
+  output = clf.fit_predict(X)
+  cluster_vectors = sortIntoClusterVectors(my_model, words, output) # 2D list 4 clusters
+  word_vectors = viewResultInArr(words, output) # 2D list 4 clusters
+  # compute intra cluster distance
+  intraClusterDistances = []
+  for cluster_vector, word_vector in zip(cluster_vectors, word_vectors):
+    intraClusterDistances.append([get_average_pairwise_distance(cluster_vector), word_vector])
+  intraClusterDistances.sort(key=lambda x: x[0], reverse=True)
+  return intraClusterDistances # top one returned
+
+def viewResultInArr(words, output): # to create the guess
+  arr = [[],[],[],[]]
+  for i, word in enumerate(words):
+    arr[output[i]].append(word)
+  return arr
+
+def sortIntoClusterVectors(my_model, words, output): # sort based on which cluster is most interconnected. Highest is best guess
+  arr = [[],[],[],[]]
+  for i, word in enumerate(words):
+    arr[output[i]].append(np.array(get_vector_representation(my_model, word)))
+  return arr
+
+def printArr(arr):
+  for row in arr:
+    print(row)
+
+def get_vector_representation(my_model, word):
+  # segment word because words like PIPE CLEANER not in model so find PIPE vector and add to CLEANER vector
+  vectors = []
+  vectors.append(my_model.get_vector(word.strip().split()))
+
+  # add vectors up to represent word or phrase as a single vector
+  return sum(vectors)
+
+
+def model(words, strikes, isOneAway, correctGroups, previousGuesses, error):
+    """
+    _______________________________________________________
+    Parameters:
+    words - 1D Array with 16 shuffled words
+    strikes - Integer with number of strikes
+    isOneAway - Boolean if your previous guess is one word away from the correct answer
+    correctGroups - 2D Array with groups previously guessed correctly
+    previousGuesses - 2D Array with previous guesses
+    error - String with error message (0 if no error)
+
+    Returns:
+    guess - 1D Array with 4 words
+    endTurn - Boolean if you want to end the puzzle
+    _______________________________________________________
+    """
+    if not my_model: # if model not loaded in
+      my_model = api.load("word2vec-google-news-300")
+    
+	# find words already in correct group and remove from words so don't guess them twice
+    for group in correctGroups:
+      for correct_word in group:
+        words.remove(correct_word)
+
+    X = []
+    try: 
+      X = [get_vector_representation(my_model,x) for x in words]
+    except:
+      return [], True # didn't find word in model so we done here
+    arr = get_best_combinations_KMeans(my_model, words, X, 4-len(correctGroups)) # less clusters if more correct groups
+
+    guess = arr[0][1]
+
+    return guess, strikes == 4
+
+    # openai/openllm/openllama/hugging face
+
+
+# from groq_client import get_groq_response
+# def model(words, strikes, isOneAway, correctGroups, previousGuesses, error):
+# 	"""
+# 	_______________________________________________________
+# 	Parameters:
+# 	words - 1D Array with 16 shuffled words
+# 	strikes - Integer with number of strikes
+# 	isOneAway - Boolean if your previous guess is one word away from the correct answer
+# 	correctGroups - 2D Array with groups previously guessed correctly
+# 	previousGuesses - 2D Array with previous guesses
+# 	error - String with error message (0 if no error)
+
+# 	Returns:
+# 	guess - 1D Array with 4 words
+# 	endTurn - Boolean if you want to end the puzzle
+# 	_______________________________________________________
+# 	"""
+
+# 	# Your Code here
+# 	# Good Luck!
+# 	correctWords = []
+# 	for row in correctGroups:
+# 		print(row)
+
+# 	words = list(filter(lambda word: (word not in correctWords), words))
+# 	initial_prompt = str(words)
+# 	# previousGuessPrompt = " These guesses are incorrect: " + str(previousGuesses)
+# 	isOneAwayStr = ""
+# 	if (isOneAway):
+# 		isOneAwayStr = " Your last guess was one away"
+# 	user_prompt = f"You are playing the game connections where words given to you have a very strong connection to another word. I will give you {len(words)} words. I want you to create one group of 4 of the words which you think are the strongest correlation together. Output a 1x4 string array of these words ONLY NOTHING ELSE."
+# 	guess = get_groq_response(initial_prompt + isOneAwayStr, user_prompt)
+# 	guess = guess.replace("[", "").replace("]", "").replace("'", "").replace("\"", "").split(", ")
+# 	# Example code where guess is hard-coded
+# 	endTurn = False # True if you want to end puzzle and skip to the next one
+
+# 	return guess, endTurn
+
+# # openai/openllm/openllama/hugging face
